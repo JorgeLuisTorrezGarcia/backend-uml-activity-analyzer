@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id             String   @id @default(uuid())
+  email          String   @unique
+  passwordHash   String
+  name           String
+  geminiApiKey   String?  // Encriptado
+  
+  ownedDiagrams  Diagram[] 
+  collaborations DiagramCollaborator[]
+  notifications  Notification[]
+}
+
+model Diagram {
+  id             String   @id @default(uuid())
+  name           String
+  content        Json
+  
+  ownerId        String
+  owner          User     @relation(fields: [ownerId], references: [id])
+  
+  collaborators  DiagramCollaborator[]
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+}
+
+model DiagramCollaborator {
+  id             String   @id @default(uuid())
+  diagramId      String
+  userId         String
+  
+  canEdit        Boolean  @default(false)
+  canSave        Boolean  @default(false)
+  canDelete      Boolean  @default(false)
+
+  diagram        Diagram  @relation(fields: [diagramId], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([diagramId, userId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   
+  message   String   
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
