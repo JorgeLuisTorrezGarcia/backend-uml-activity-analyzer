@@ -16,6 +16,10 @@ model User {
   ownedDiagrams  Diagram[] 
   collaborations DiagramCollaborator[]
   notifications  Notification[]
+  
+  // Relaciones inversas BPM
+  bpmInstances   ExecutionInstance[] @relation("InstanciasBPM")
+  bpmSteps       ExecutionStep[]     @relation("PasosBPM")
 }
 
 model Diagram {
@@ -27,6 +31,10 @@ model Diagram {
   owner          User     @relation(fields: [ownerId], references: [id])
   
   collaborators  DiagramCollaborator[]
+  
+  // Relaciones inversas BPM
+  executionInstances ExecutionInstance[]
+  
   updatedAt      DateTime @updatedAt
   createdAt      DateTime @default(now())
 }
@@ -54,4 +62,41 @@ model Notification {
   createdAt DateTime @default(now())
 
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ==========================================
+// MÓDULO BPM: ENGINE & TRACKING
+// ==========================================
+
+model ExecutionInstance {
+  id             String   @id @default(uuid())
+  diagramId      String
+  
+  status         String   @default("RUNNING") // RUNNING, COMPLETED, FAILED
+  startedAt      DateTime @default(now())
+  endedAt        DateTime?
+
+  startedById    String
+  startedBy      User     @relation("InstanciasBPM", fields: [startedById], references: [id], onDelete: Cascade)
+
+  diagram        Diagram  @relation(fields: [diagramId], references: [id], onDelete: Cascade)
+  steps          ExecutionStep[]
+}
+
+model ExecutionStep {
+  id             String   @id @default(uuid())
+  instanceId     String
+  
+  nodeId         String   // ID del Nodo en el JSON
+  laneId         String?  // ID de la Calle en el JSON (Rol)
+  
+  userId         String
+  executedBy     User     @relation("PasosBPM", fields: [userId], references: [id], onDelete: Cascade)
+
+  formData       Json?    // Las respuestas del Form Builder
+  artifactsUrls  String[] // URLs de archivos subidos
+  
+  executedAt     DateTime @default(now())
+
+  instance       ExecutionInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 }

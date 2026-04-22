@@ -73,3 +73,86 @@ export const generateDiagramAI = async (req, res) => {
     res.status(500).json({ error: error.message || 'Error comunicándose con Gemini.' });
   }
 };
+
+export const generateReportAI = async (req, res) => {
+  try {
+    const { instanceId } = req.params;
+
+    // 1. Obtener la llave del usuario
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { geminiApiKey: true }
+    });
+
+    if (!user || !user.geminiApiKey) {
+      return res.status(403).json({ error: 'Debes configurar tu API Key de Gemini en Configuración primero.' });
+    }
+
+    // 2. Obtener la instancia, el diagrama y los pasos
+    const instance = await prisma.executionInstance.findUnique({
+      where: { id: instanceId },
+      include: {
+        startedBy: { select: { name: true, email: true } },
+        diagram: { select: { name: true, content: true } },
+        steps: {
+          orderBy: { executedAt: 'asc' },
+          include: { executedBy: { select: { name: true } } }
+        }
+      }
+    });
+
+    if (!instance) {
+      return res.status(404).json({ error: 'Instancia no encontrada' });
+    }
+
+    const apiKey = decrypt(user.geminiApiKey);
+    const ai = new GoogleGenAI({ apiKey });
+
+    // 3. Sistema para Reportes
+    const systemInstruction = `
+      Eres un Auditor Corporativo Senior experto en análisis de procesos de negocio (BPM).
+      El usuario te pasará un registro JSON de la ejecución de un workflow.
+      Tu trabajo es redactar un INFORME EJECUTIVO PROFESIONAL EN MARKDOWN.
+      Debe contener:
+      1. Título y Resumen Ejecutivo (¿Qué proceso fue, cuándo inició, cuánto tardó en general?)
+      2. Línea de Tiempo (Mapeo de quién hizo qué nodo, marcando horas)
+      3. Análisis de Datos (Haz un resumen amigable de los "formData" recopilados en los pasos, destacando decisiones o campos clave).
+      4. Observaciones/Cuellos de Botella (Si notas que pasó mucho tiempo entre un paso y otro, menciónalo).
+
+      REGLA ESTRICTA: Tu respuesta debe ser SOLO texto en Markdown válido. No incluyas \`\`\`markdown al inicio, redacta directo el contenido. Usa tablas si es útil para los datos.
+    `;
+
+    const userPrompt = `
+      ### DATOS DE EJECUCIÓN (BPM)
+      - Diagrama: ${instance.diagram.name}
+      - Iniciado por: ${instance.startedBy.name}
+      - Fecha Inicio: ${instance.startedAt}
+      - Fecha Fin: ${instance.endedAt || 'En curso'}
+      
+      ### PASOS (HISTORIAL)
+      ${JSON.stringify(instance.steps.map(s => ({
+        nodo: s.nodeId,
+        ejecutadoPor: s.executedBy.name,
+        fecha: s.executedAt,
+        datosInsertados: s.formData,
+        archivos: s.artifactsUrls
+      })), null, 2)}
+      
+      Por favor, redacta el informe en Markdown.
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: userPrompt,
+      config: {
+        systemInstruction,
+        temperature: 0.4,
+      }
+    });
+
+    res.json({ markdown: response.text });
+  } catch (error) {
+    console.error("AI Report Error:", error);
+    res.status(500).json({ error: error.message || 'Error comunicándose con Gemini para el reporte.' });
+  }
+};

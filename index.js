@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
 import diagramRoutes from './routes/diagrams.js';
 import aiRoutes from './routes/ai.js';
+import bpmRoutes from './routes/bpm.js';
 import { verifyToken } from './utils/jwt.js';
 import { prisma } from './utils/prisma.js';
 
@@ -15,10 +16,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ── Exponer carpeta Uploads ────────────────────────
+app.use('/uploads', express.static('uploads'));
+
 // ── Rutas REST API ──────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/diagrams', diagramRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/execute', bpmRoutes);
 
 // ── Sockets Sincronización en Tiempo Real ───────
 const httpServer = createServer(app);
