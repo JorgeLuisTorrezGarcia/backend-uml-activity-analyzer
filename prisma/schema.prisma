@@ -20,6 +20,7 @@ model User {
   // Relaciones inversas BPM
   bpmInstances   ExecutionInstance[] @relation("InstanciasBPM")
   bpmSteps       ExecutionStep[]     @relation("PasosBPM")
+  uploadedDocs   DocumentVersion[]   @relation("DocumentosSubidos")
 }
 
 model Diagram {
@@ -34,6 +35,7 @@ model Diagram {
   
   // Relaciones inversas BPM
   executionInstances ExecutionInstance[]
+  documents          Document[] @relation("DiagramaDocumentos")
   
   updatedAt      DateTime @updatedAt
   createdAt      DateTime @default(now())
@@ -76,6 +78,8 @@ model ExecutionInstance {
   startedAt      DateTime @default(now())
   endedAt        DateTime?
 
+  activeTokens   Json?    // Guarda el array de tokens activos [{ tokenId, currentNodeId, laneId }]
+
   startedById    String
   startedBy      User     @relation("InstanciasBPM", fields: [startedById], references: [id], onDelete: Cascade)
 
@@ -99,4 +103,43 @@ model ExecutionStep {
   executedAt     DateTime @default(now())
 
   instance       ExecutionInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  documentVersions DocumentVersion[]
 }
+
+// ==========================================
+// MÓDULO GESTIÓN DOCUMENTAL (S3)
+// ==========================================
+
+model Document {
+  id             String   @id @default(uuid())
+  name           String   // Nombre original (ej. "Contrato.docx")
+  diagramId      String
+  
+  diagram        Diagram  @relation("DiagramaDocumentos", fields: [diagramId], references: [id], onDelete: Cascade)
+  versions       DocumentVersion[]
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([diagramId, name]) // Evitar documentos duplicados con el mismo nombre en un diagrama
+}
+
+model DocumentVersion {
+  id             String   @id @default(uuid())
+  documentId     String
+  url            String   // URL del bucket S3
+  versionNumber  Int
+  
+  uploadedById   String
+  uploadedBy     User     @relation("DocumentosSubidos", fields: [uploadedById], references: [id], onDelete: Cascade)
+  
+  stepId         String?
+  step           ExecutionStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  createdAt      DateTime @default(now())
+
+  document       Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  @@unique([documentId, versionNumber])
+}
+

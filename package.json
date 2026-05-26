@@ -12,6 +12,8 @@
     "db:push": "prisma db push"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1053.0",
+    "@aws-sdk/s3-request-presigner": "^3.1053.0",
     "@google/genai": "^1.48.0",
     "@prisma/adapter-pg": "^7.6.0",
     "@prisma/client": "^7.6.0",
@@ -22,6 +24,7 @@
     "express": "^4.22.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
+    "multer-s3": "^3.0.1",
     "pg": "^8.20.0",
     "socket.io": "^4.8.3"
   },

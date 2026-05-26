@@ -7,6 +7,8 @@ import authRoutes from './routes/auth.js';
 import diagramRoutes from './routes/diagrams.js';
 import aiRoutes from './routes/ai.js';
 import bpmRoutes from './routes/bpm.js';
+import documentsRoutes from './routes/documents.js';
+import metricsRoutes from './routes/metrics.js';
 import { verifyToken } from './utils/jwt.js';
 import { prisma } from './utils/prisma.js';
 
@@ -24,6 +26,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/diagrams', diagramRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/execute', bpmRoutes);
+app.use('/api/documents', documentsRoutes);
+app.use('/api/metrics', metricsRoutes);
 
 // ── Sockets Sincronización en Tiempo Real ───────
 const httpServer = createServer(app);
@@ -33,6 +37,9 @@ const io = new Server(httpServer, {
     methods: ['GET', 'POST'],
   },
 });
+
+// Registrar la instancia de io en el app para que las rutas BPM puedan emitirla
+app.set('io', io);
 
 // Middleware Global de Autenticación para WebSockets
 io.use((socket, next) => {
