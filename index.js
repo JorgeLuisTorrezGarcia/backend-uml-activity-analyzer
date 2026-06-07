@@ -138,6 +138,10 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('cursor-moved', { userId: socket.user.name, cursor });
   });
 
+  socket.on('edit-document', ({ roomId, documentId, contentHtml }) => {
+    socket.to(roomId).emit('document-edited', { documentId, contentHtml });
+  });
+
   socket.on('disconnect', () => {
     console.log(`User ${socket.user?.name} disconnected`);
     io.emit('user-left', socket.id);

@@ -21,6 +21,7 @@ model User {
   bpmInstances   ExecutionInstance[] @relation("InstanciasBPM")
   bpmSteps       ExecutionStep[]     @relation("PasosBPM")
   uploadedDocs   DocumentVersion[]   @relation("DocumentosSubidos")
+  reviewedDocs   DocumentVersion[]   @relation("DocumentosRevisados")
 }
 
 model Diagram {
@@ -129,6 +130,11 @@ model DocumentVersion {
   documentId     String
   url            String   // URL del bucket S3
   versionNumber  Int
+  
+  status         String   @default("EN_REVISION") // EN_REVISION, ACEPTADO, RECHAZADO
+  reviewedById   String?
+  reviewedBy     User?    @relation("DocumentosRevisados", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt     DateTime?
   
   uploadedById   String
   uploadedBy     User     @relation("DocumentosSubidos", fields: [uploadedById], references: [id], onDelete: Cascade)

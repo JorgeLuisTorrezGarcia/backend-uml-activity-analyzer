@@ -3,7 +3,10 @@ import { prisma } from '../utils/prisma.js';
 import { verifyToken } from '../utils/jwt.js';
 import { signS3Url } from '../utils/s3signer.js';
 import multer from 'multer';
-import { S3Client } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import HTMLtoDOCX from 'html-to-docx';
+import fs from 'fs';
+import path from 'path';
 import multerS3 from 'multer-s3';
 
 let storage;
@@ -160,6 +163,151 @@ router.post('/:documentId/version', authenticate, upload.single('file'), async (
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al subir nueva versión' });
+  }
+});
+
+/**
+ * Actualizar el estado de revisión de una versión del documento
+ * PUT /api/documents/version/:versionId/status
+ */
+router.put('/version/:versionId/status', authenticate, async (req, res) => {
+  try {
+    const { versionId } = req.params;
+    const { status } = req.body;
+
+    if (!['EN_REVISION', 'ACEPTADO', 'RECHAZADO'].includes(status)) {
+      return res.status(400).json({ error: 'Estado inválido' });
+    }
+
+    const version = await prisma.documentVersion.findUnique({
+      where: { id: versionId },
+      include: {
+        document: { select: { diagramId: true } }
+      }
+    });
+
+    if (!version) {
+      return res.status(404).json({ error: 'Versión de documento no encontrada' });
+    }
+
+    const updatedVersion = await prisma.documentVersion.update({
+      where: { id: versionId },
+      data: {
+        status,
+        reviewedById: req.user.id,
+        reviewedAt: new Date()
+      },
+      include: {
+        uploadedBy: { select: { name: true, email: true } },
+        reviewedBy: { select: { name: true, email: true } }
+      }
+    });
+
+    // Emitir por socket para tiempo real si está configurado
+    const io = req.app.get('io');
+    if (io) {
+      io.to(version.document.diagramId).emit('document-status-updated', {
+        versionId,
+        status,
+        reviewedBy: updatedVersion.reviewedBy,
+        reviewedAt: updatedVersion.reviewedAt
+      });
+    }
+
+    res.json(updatedVersion);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al actualizar estado de la versión' });
+  }
+});
+
+/**
+ * Guardar una nueva versión de un documento a partir de contenido HTML (editor enriquecido)
+ * POST /api/documents/:documentId/version-html
+ */
+router.post('/:documentId/version-html', authenticate, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { contentHtml, docName } = req.body;
+
+    if (!contentHtml) {
+      return res.status(400).json({ error: 'Contenido HTML requerido' });
+    }
+
+    const document = await prisma.document.findUnique({
+      where: { id: documentId },
+    });
+
+    if (!document) {
+      return res.status(404).json({ error: 'Documento no encontrado' });
+    }
+
+    // Convertir el HTML a un buffer DOCX nativo usando html-to-docx (compatible con Google Docs, etc.)
+    const fullHtml = contentHtml.includes('<html') 
+      ? contentHtml 
+      : `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${contentHtml}</body></html>`;
+
+    const docxBuffer = await HTMLtoDOCX(fullHtml, null, {
+      orientation: 'portrait',
+      pageSize: 'A4',
+      margins: { top: 1440, bottom: 1440, left: 1440, right: 1440 }
+    });
+
+    let fileUrl = '';
+    const safeDocName = docName || document.name;
+
+    if (process.env.AWS_BUCKET_NAME) {
+      const s3Client = new S3Client({
+        region: process.env.AWS_REGION,
+        credentials: {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        }
+      });
+
+      const uniqueKey = `bpm_artifacts/${Date.now().toString()}_${safeDocName}`;
+      const uploadParams = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: uniqueKey,
+        Body: docxBuffer,
+        ContentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      };
+
+      await s3Client.send(new PutObjectCommand(uploadParams));
+      fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${uniqueKey}`;
+    } else {
+      const uniqueName = `${Date.now()}_${safeDocName}`;
+      const uploadsDir = path.resolve('uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(uploadsDir, uniqueName), docxBuffer);
+      fileUrl = `http://localhost:3001/uploads/${uniqueName}`;
+    }
+
+    const lastVersion = await prisma.documentVersion.findFirst({
+      where: { documentId: document.id },
+      orderBy: { versionNumber: 'desc' }
+    });
+    
+    const nextVersion = (lastVersion?.versionNumber || 0) + 1;
+
+    const newVersion = await prisma.documentVersion.create({
+      data: {
+        documentId: document.id,
+        url: fileUrl,
+        versionNumber: nextVersion,
+        uploadedById: req.user.id
+      },
+      include: {
+        uploadedBy: { select: { name: true, email: true } }
+      }
+    });
+
+    res.status(201).json(newVersion);
+  } catch (error) {
+    console.error('Error al generar DOCX desde HTML:', error);
+    res.status(500).json({ error: 'Error al generar o guardar el documento DOCX' });
   }
 });
 
